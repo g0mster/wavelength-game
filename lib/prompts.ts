@@ -63,7 +63,7 @@ export function getIndicesForPacks(packs: PackId[]): number[] {
       }
     }
   }
-  return [...new Set(indices)];
+  return Array.from(new Set(indices));
 }
 
 export function pickRandomIndicesFromPacks(count: number, packs: PackId[], exclude: number[] = []): number[] {
