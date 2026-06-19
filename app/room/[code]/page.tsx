@@ -2,14 +2,14 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
-import { PROMPTS } from '@/lib/prompts';
+import { PROMPTS, PACKS, PackId, ALL_PACK_IDS } from '@/lib/prompts';
 import Spectrum from '@/components/Spectrum';
 
 interface Player { id: string; name: string; score: number; lobby_done: boolean; }
 interface LobbyCard { id: string; player_id: string; card_order: number; question_index: number; target_position: number; person_name: string | null; }
 interface Round { id: string; round_number: number; lobby_card_id: string; owner_id: string; phase: string; lobby_cards: { question_index: number; person_name: string; target_position: number; player_id: string; }; }
 interface Guess { id: string; round_id: string; player_id: string; position: number; score: number; }
-interface Room { code: string; phase: string; host_id: string; current_round: number; total_rounds: number; }
+interface Room { code: string; phase: string; host_id: string; current_round: number; total_rounds: number; packs: string[]; }
 
 const LOBBY_SECONDS = 300;
 
@@ -31,6 +31,7 @@ export default function RoomPage() {
   const [timer, setTimer] = useState(LOBBY_SECONDS);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [selectedPacks, setSelectedPacks] = useState<PackId[]>(ALL_PACK_IDS);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const pid = playerId;
@@ -53,7 +54,10 @@ export default function RoomPage() {
       supabase.from('lobby_cards').select('*').eq('player_id', pid).eq('room_code', code).order('card_order'),
     ]);
 
-    if (roomRes.data) setRoom(roomRes.data);
+    if (roomRes.data) {
+      setRoom(roomRes.data);
+      if (roomRes.data.packs?.length) setSelectedPacks(roomRes.data.packs as PackId[]);
+    }
     if (playersRes.data) setPlayers(playersRes.data);
     if (myCardsRes.data) {
       setMyCards(myCardsRes.data);
@@ -133,6 +137,20 @@ export default function RoomPage() {
   }, [room?.phase]);
 
   // --- Actions ---
+  async function togglePack(packId: PackId) {
+    if (!isHost) return;
+    const next = selectedPacks.includes(packId)
+      ? selectedPacks.filter(p => p !== packId)
+      : [...selectedPacks, packId];
+    if (next.length === 0) return; // must keep at least 1
+    setSelectedPacks(next);
+    await fetch('/api/room/update-packs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, playerId: pid, packs: next }),
+    });
+  }
+
   async function startLobby() {
     setActionLoading(true);
     await fetch('/api/room/start-lobby', {
@@ -230,40 +248,80 @@ export default function RoomPage() {
   // ── WAITING ROOM ──────────────────────────────────────────
   if (room.phase === 'waiting') {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center p-4">
-        <div className="w-full max-w-md">
-          <div className="card p-8">
-            <div className="text-center mb-6">
-              <p className="text-gray-400 text-sm mb-1">Room Code</p>
-              <h1 className="text-5xl font-bold tracking-widest" style={{ color: '#c4b5fd' }}>{code}</h1>
-              <p className="text-gray-500 text-sm mt-2">Share this code with your friends</p>
-            </div>
+      <main className="min-h-screen flex flex-col items-center justify-center p-4 py-10">
+        <div className="w-full max-w-lg">
+          {/* Room code */}
+          <div className="card p-6 mb-4 text-center">
+            <p className="text-gray-400 text-sm mb-1">Room Code</p>
+            <h1 className="text-5xl font-bold tracking-widest" style={{ color: '#c4b5fd' }}>{code}</h1>
+            <p className="text-gray-500 text-sm mt-1">Share this code with your friends</p>
+          </div>
 
-            <div className="mb-6">
-              <p className="text-gray-400 text-sm mb-3">Players ({players.length})</p>
-              <div className="flex flex-col gap-2">
-                {players.map(p => (
-                  <div key={p.id} className="flex items-center gap-3 bg-white/5 rounded-lg px-4 py-2">
-                    <div className="w-2 h-2 rounded-full bg-green-400" />
-                    <span className="font-medium">{p.name}</span>
-                    {p.id === room.host_id && <span className="text-xs text-yellow-400 ml-auto">Host</span>}
-                  </div>
-                ))}
-              </div>
+          {/* Players */}
+          <div className="card p-5 mb-4">
+            <p className="text-gray-400 text-sm mb-3">Players ({players.length})</p>
+            <div className="flex flex-col gap-2">
+              {players.map(p => (
+                <div key={p.id} className="flex items-center gap-3 bg-white/5 rounded-lg px-4 py-2">
+                  <div className="w-2 h-2 rounded-full bg-green-400" />
+                  <span className="font-medium">{p.name}</span>
+                  {p.id === room.host_id && <span className="text-xs text-yellow-400 ml-auto">Host</span>}
+                </div>
+              ))}
             </div>
+          </div>
 
-            {isHost ? (
-              <button
-                className="btn-primary w-full"
-                onClick={startLobby}
-                disabled={actionLoading || players.length < 2}
-              >
-                {players.length < 2 ? 'Waiting for players...' : 'Start Game →'}
-              </button>
-            ) : (
-              <p className="text-center text-gray-500">Waiting for host to start...</p>
+          {/* Pack selection (host only) */}
+          <div className="card p-5 mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-gray-300 text-sm font-semibold">Question Packs</p>
+              {isHost && (
+                <p className="text-xs text-gray-500">{selectedPacks.length} selected</p>
+              )}
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              {PACKS.map(pack => {
+                const on = selectedPacks.includes(pack.id);
+                return (
+                  <button
+                    key={pack.id}
+                    onClick={() => isHost && togglePack(pack.id)}
+                    disabled={!isHost}
+                    className={`flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-all border ${
+                      on
+                        ? 'border-purple-500 bg-purple-500/20'
+                        : 'border-white/10 bg-white/5 opacity-50'
+                    } ${isHost ? 'cursor-pointer hover:border-purple-400' : 'cursor-default'}`}
+                  >
+                    <span className="text-2xl">{pack.emoji}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm">{pack.name}</p>
+                      <p className="text-xs text-gray-400 truncate">{pack.description}</p>
+                    </div>
+                    {isHost && (
+                      <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${on ? 'bg-purple-400 border-purple-400' : 'border-gray-600'}`} />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            {!isHost && (
+              <p className="text-xs text-gray-500 mt-2 text-center">Host is selecting the packs</p>
             )}
           </div>
+
+          {/* Start button */}
+          {isHost ? (
+            <button
+              className="btn-primary w-full"
+              onClick={startLobby}
+              disabled={actionLoading || players.length < 2 || selectedPacks.length === 0}
+            >
+              {players.length < 2 ? 'Waiting for players...' : `Start Game →`}
+            </button>
+          ) : (
+            <p className="text-center text-gray-500 text-sm">Waiting for host to start...</p>
+          )}
         </div>
       </main>
     );

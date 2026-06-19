@@ -3,6 +3,75 @@ export interface Prompt {
   right: string;
 }
 
+export type PackId = 'personality' | 'friends' | 'work' | 'deep' | 'wildcard';
+
+export interface Pack {
+  id: PackId;
+  name: string;
+  emoji: string;
+  description: string;
+  ranges: [number, number][]; // inclusive index ranges into PROMPTS
+}
+
+export const PACKS: Pack[] = [
+  {
+    id: 'personality',
+    name: 'Personality',
+    emoji: '🌈',
+    description: 'Vibes, lifestyle, taste & worldview',
+    ranges: [[0, 19], [35, 49], [80, 94], [130, 139]],
+  },
+  {
+    id: 'friends',
+    name: 'Friends',
+    emoji: '🫂',
+    description: 'Social dynamics, humor & group energy',
+    ranges: [[20, 34], [110, 119], [165, 194]],
+  },
+  {
+    id: 'work',
+    name: 'Work',
+    emoji: '💼',
+    description: 'Ambition, work style & big ideas',
+    ranges: [[50, 64], [95, 129], [140, 154], [205, 214]],
+  },
+  {
+    id: 'deep',
+    name: 'Deep Cut',
+    emoji: '❤️',
+    description: 'Love, inner life & the existential stuff',
+    ranges: [[65, 79], [155, 164], [195, 234]],
+  },
+  {
+    id: 'wildcard',
+    name: 'Wildcard',
+    emoji: '🎲',
+    description: 'Unpredictable, chaotic & unhinged',
+    ranges: [[175, 184], [235, 244]],
+  },
+];
+
+export const ALL_PACK_IDS: PackId[] = ['personality', 'friends', 'work', 'deep', 'wildcard'];
+
+export function getIndicesForPacks(packs: PackId[]): number[] {
+  const selected = PACKS.filter(p => packs.includes(p.id));
+  const indices: number[] = [];
+  for (const pack of selected) {
+    for (const [start, end] of pack.ranges) {
+      for (let i = start; i <= end && i < PROMPTS.length; i++) {
+        indices.push(i);
+      }
+    }
+  }
+  return [...new Set(indices)];
+}
+
+export function pickRandomIndicesFromPacks(count: number, packs: PackId[], exclude: number[] = []): number[] {
+  const available = getIndicesForPacks(packs).filter(i => !exclude.includes(i));
+  const shuffled = [...available].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
+}
+
 export const PROMPTS: Prompt[] = [
   // PERSONALITY & VIBE
   { left: "More introvert", right: "More extrovert" },
@@ -276,9 +345,5 @@ export function getPrompt(index: number): Prompt {
 }
 
 export function pickRandomIndices(count: number, exclude: number[] = []): number[] {
-  const available = Array.from({ length: PROMPTS.length }, (_, i) => i).filter(
-    (i) => !exclude.includes(i)
-  );
-  const shuffled = available.sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
+  return pickRandomIndicesFromPacks(count, ALL_PACK_IDS, exclude);
 }

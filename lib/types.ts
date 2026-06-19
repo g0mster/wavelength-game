@@ -7,6 +7,7 @@ export interface Room {
   host_id: string;
   current_round: number;
   total_rounds: number;
+  packs: string[];
   created_at: string;
 }
 
